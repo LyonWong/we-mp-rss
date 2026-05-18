@@ -1,0 +1,15 @@
+[Unit]
+Description=WeChat MP RSS Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/mnt/data/projects/we-mp-rss
+ExecStart=/mnt/data/projects/we-mp-rss/.venv/bin/python main.py -job True
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
