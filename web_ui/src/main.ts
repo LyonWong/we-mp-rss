@@ -5,8 +5,7 @@ import router from './router'
 // 导入 ArcoDesign
 import ArcoVue from '@arco-design/web-vue'
 // 导入 ArcoDesign 图标
-import { createApp } from 'vue';
-import ArcoVueIcon from '@arco-design/web-vue/es/icon'; // 关键步骤
+import ArcoVueIcon from '@arco-design/web-vue/es/icon'
 // 导入 ArcoDesign 样式
 import '@arco-design/web-vue/dist/arco.css'
 // 导入自定义样式

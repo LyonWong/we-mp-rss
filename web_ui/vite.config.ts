@@ -36,7 +36,7 @@ export default defineConfig(({ command, mode }) => {
       },
     },
     server: {
-      host: "0.0.0.0",
+      host: "we-mp-rss.morsecodes.net",
       port: 3000,
       proxy: {
         "/views": {
