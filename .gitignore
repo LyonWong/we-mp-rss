@@ -4,6 +4,7 @@ __pycache__
 config.yaml
 dist/
 build/
+.static
 static/anti_bot*
 static/test.html
 static/fix.html
