@@ -10,9 +10,28 @@
     <a-card>
       <a-space direction="vertical" size="large">
         <a-space>
-          <a-link @click="openDialog()">通过公众号码文章获取</a-link>
+          <a-link @click="openDialog()">通过公众号文章获取</a-link>
+          <a-divider direction="vertical" />
+          <a-link @click="preSearchVisible = !preSearchVisible">预搜索公众号</a-link>
         </a-space>
       </a-space>
+
+ <div v-if="preSearchVisible" style="margin-top: 10px;">
+    <a-space>
+      <a-input
+        v-model="preSearchKw"
+        placeholder="输入公众号名称"
+        style="width: 260px;"
+        @press-enter="handlePreSearch"
+      />
+      <a-button
+        type="primary"
+        :loading="preSearching"
+        :disabled="preSearching"
+        @click="handlePreSearch"
+      >{{ preSearchBtnText }}</a-button>
+    </a-space>
+  </div>
 
  <div v-if="modalVisible">
     <a-input
@@ -29,7 +48,7 @@
         :model="form"
         :rules="rules"
         layout="vertical"
-        @submit="handleSubmit"
+        @submit.prevent
       >
         <a-form-item label="公众号名称" field="name">
           <a-space>
@@ -75,7 +94,7 @@
         
         <a-form-item>
           <a-space>
-            <a-button type="primary" html-type="submit" :loading="loading">
+            <a-button type="primary" :loading="loading" :disabled="!form.name || !form.wx_id" @click="handleSubmit">
               添加订阅
             </a-button>
             <a-button @click="resetForm">重置</a-button>
@@ -96,6 +115,10 @@ const router = useRouter()
 const loading = ref(false)
 const isFetching = ref(false)
 const searchResults = ref([])
+const preSearchVisible = ref(false)
+const preSearchKw = ref('')
+const preSearching = ref(false)
+const preSearchBtnText = ref('搜索')
 const avatar_url = ref('/static/default-avatar.png')
 const formRef = ref(null)
 const form = ref({
@@ -239,6 +262,30 @@ const articleLink = ref('');
 const openDialog = () => {
   modalVisible.value = true;
 };
+
+const handlePreSearch = async () => {
+  const kw = preSearchKw.value?.trim()
+  if (!kw || preSearching.value) return
+
+  preSearching.value = true
+  preSearchBtnText.value = '搜索中...'
+  try {
+    await searchBiz(kw, { kw, offset: 0, limit: 10 })
+    // 搜索成功，填入名称，触发下方 select 的缓存命中
+    form.value.name = kw
+    handleSearch(kw)
+    preSearchBtnText.value = '搜索'
+  } catch (error: any) {
+    if (error?.response?.status === 504 || error?.status === 504) {
+      preSearchBtnText.value = '重试'
+    } else {
+      Message.error(error?.response?.data?.message || '搜索公众号失败')
+      preSearchBtnText.value = '搜索'
+    }
+  } finally {
+    preSearching.value = false
+  }
+}
 
 
 const goBack = () => {

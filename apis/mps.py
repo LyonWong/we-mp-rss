@@ -13,6 +13,7 @@ from core.res import save_avatar_locally
 from core.models.feed import FEATURED_MP_ID, FEATURED_MP_NAME, FEATURED_MP_INTRO
 from core.models.base import DATA_STATUS
 from core.cache import clear_cache_pattern
+from core.redis_client import RedisCache
 import io
 import os
 from jobs.article import UpdateArticle
@@ -20,6 +21,11 @@ from driver.wxarticle import WXArticleFetcher
 import threading
 from uuid import uuid4
 router = APIRouter(prefix=f"/mps", tags=["公众号管理"])
+
+search_cache = RedisCache(key_prefix="werss:mp_search")
+SEARCH_LOCK_TTL = 300       # 搜索锁 5 分钟
+SEARCH_CACHE_TTL = 86400    # 搜索结果缓存 1 天
+SEARCH_LOCK_VALUE = "SEARCHING"
 # import core.db as db
 # UPDB=db.Db("数据抓取")
 # def UpdateArticle(art:dict):
@@ -199,25 +205,52 @@ async def search_mp(
     offset: int = 0,
     current_user: dict = Depends(get_current_user_or_ak)
 ):
-    session = DB.get_session()
-    try:
-        result = search_Biz(kw,limit=limit,offset=offset)
-        data={
-            'list':result.get('list') if result is not None else [],
-            'page':{
-                'limit':limit,
-                'offset':offset
-            },
-            'total':result.get('total') if result is not None else 0
+    cache_key = f"search:{kw}:{limit}:{offset}"
+
+    # 1. 检查缓存
+    cached = search_cache.get(cache_key)
+    if cached is not None:
+        # 值为锁标记，表示正在搜索中
+        if cached == SEARCH_LOCK_VALUE:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=error_response(code=429, message="搜索中，请稍后再试")
+            )
+        # 有效缓存结果，直接返回
+        return success_response(cached)
+
+    # 2. 设置搜索锁（TTL 5 分钟），防止并发重复请求
+    lock_set = search_cache.set(cache_key, SEARCH_LOCK_VALUE, ttl=SEARCH_LOCK_TTL)
+    if not lock_set:
+        # Redis 不可用时降级为直接搜索
+        result = search_Biz(kw, limit=limit, offset=offset)
+        data = {
+            'list': result.get('list') if result is not None else [],
+            'page': {'limit': limit, 'offset': offset},
+            'total': result.get('total') if result is not None else 0
         }
         return success_response(data)
+
+    # 3. 调用微信搜索接口
+    try:
+        result = search_Biz(kw, limit=limit, offset=offset)
+        data = {
+            'list': result.get('list') if result is not None else [],
+            'page': {'limit': limit, 'offset': offset},
+            'total': result.get('total') if result is not None else 0
+        }
+        # 4. 搜索成功，更新缓存为真实结果（TTL 1 天）
+        search_cache.set(cache_key, data, ttl=SEARCH_CACHE_TTL)
+        return success_response(data)
     except Exception as e:
+        # 搜索失败，删除锁，允许重试
+        search_cache.delete(cache_key)
         print(f"搜索公众号错误: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_201_CREATED,
             detail=error_response(
                 code=50001,
-                message=f"搜索公众号失败,请重新扫码授权！",
+                message="搜索公众号失败,请重新扫码授权！",
             )
         )
 
