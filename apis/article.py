@@ -10,7 +10,7 @@ from core.models.article import Article,ArticleBase
 from sqlalchemy import and_, or_, desc
 from .base import success_response, error_response
 from core.config import cfg
-from apis.base import format_search_kw
+from apis.base import format_search_kw, format_match_kw
 from core.print import print_warning, print_info, print_error, print_success
 from core.cache import clear_cache_pattern
 from tools.fix import fix_article
@@ -432,6 +432,7 @@ async def get_articles(
     limit: int = Query(5, ge=1, le=100),
     status: str = Query(None, description="文章状态，多个用逗号分隔，如: updating,deleted"),
     search: str = Query(None),
+    match: str = Query(None, description="全文检索关键词，搜索文章正文内容"),
     mp_id: str = Query(None),
     only_favorite: bool = Query(False),
     has_content: bool = Query(None, description="是否有正文: true=有, false=无, 不传=全部"),
@@ -452,7 +453,8 @@ async def get_articles(
         }
 
         # 构建查询条件 - 使用 ArticleBase 模型（不包含 content 字段，加速查询）
-        query = session.query(ArticleBase)
+        # 如果使用全文检索，需要切换到 Article 模型（包含 content 字段）
+        query = session.query(Article) if match else session.query(ArticleBase)
 
         # 支持多个状态值（逗号分隔），将字符串映射为状态码
         if status:
@@ -477,11 +479,20 @@ async def get_articles(
                 query = query.filter(Article.has_content == 0)
         if search:
             query = query.filter(format_search_kw(search))
-        
+        # 全文检索 content 字段
+        if match:
+            query = query.filter(format_match_kw(match))
+
         # 获取总数
         total = query.count()
-        query= query.order_by(Article.publish_time.desc()).offset(offset).limit(limit)
-        # 分页查询（按发布时间降序）
+        # 全文检索按相关性排序，否则按发布时间排序
+        if match:
+            from sqlalchemy import text as sa_text
+            relevance = sa_text("MATCH(content) AGAINST(:keyword IN BOOLEAN MODE)").bindparams(keyword=match)
+            query = query.order_by(desc(relevance)).offset(offset).limit(limit)
+        else:
+            query = query.order_by(Article.publish_time.desc()).offset(offset).limit(limit)
+        # 分页查询
         results = query.all()
         
         # 打印生成的 SQL 语句（包含分页参数）
@@ -499,6 +510,10 @@ async def get_articles(
         article_list = []
         for article in results:
             article_dict = article.__dict__.copy()
+            # 移除大文本字段，避免返回 content 和 content_html
+            article_dict.pop("content", None)
+            article_dict.pop("content_html", None)
+            article_dict.pop("_sa_instance_state", None)
             article_dict["mp_name"] = mp_names.get(article.mp_id, "未知公众号")
             article_dict["is_favorite"] = int(getattr(article, "is_favorite", 0) or 0)
             article_dict["has_content"] = int(getattr(article, "has_content", 0) or 0)

@@ -22,9 +22,12 @@ def error_response(code: int, message: str, data=None):
         "message": message,
         "data": data
     }
-from sqlalchemy import and_,or_
+from sqlalchemy import and_,or_,text
 from core.models import Article
 def format_search_kw(keyword: str):
     words = keyword.replace("-"," ").replace("|"," ").split(" ")
     rule = or_(*[Article.title.like(f"%{w}%") for w in words])
     return rule
+
+def format_match_kw(keyword: str):
+    return text("MATCH(content) AGAINST(:keyword IN BOOLEAN MODE)").bindparams(keyword=keyword)
